@@ -42,7 +42,7 @@ bool checking[10];
 bool e_checking = true;
 
 pthread_cond_t empty, fill;
-pthread_mutex_t mutex,cus_lock;
+pthread_mutex_t mutex,cus_lock,tailLock,headLock;
 queue_t *queue;
 
 
@@ -53,6 +53,8 @@ void queue_init(queue_t *q){
         tmp->next = NULL;
         q->head = q->tail = tmp;
         q->balance = 0;
+	pthread_mutex_init(&headLock,NULL);
+	pthread_mutex_init(&tailLock,NULL);
 	
 }
 void queue_enqueue(queue_t *q, int car_num){
@@ -62,26 +64,31 @@ void queue_enqueue(queue_t *q, int car_num){
         tmp->car_num = car_num;
         tmp->next = NULL;
 
-        
+	pthread_mutex_lock(&tailLock);        
         q->tail->next = tmp;
         q->tail = tmp;
+	pthread_mutex_unlock(&tailLock);
 	
         
 	q->balance++;
 }
 int queue_dequeue(queue_t *q){
 
-        int car_num;
+        pthread_mutex_lock(&headLock);
         
         node_t *tmp = q->head;
         node_t *newHead = tmp->next;
-	
-        car_num = newHead->car_num;
+	if(newHead ==NULL){
+		pthread_mutex_unlock(&headLock);
+		return -1;
+	}
+        
         q->head = newHead;
-	
+	pthread_mutex_unlock(&headLock);
         free(tmp);
 	q->balance--;
-        return car_num;
+	return 0;
+        
 }
 
 void clean_queue(queue_t *q){
@@ -111,7 +118,7 @@ void *producer_c(void *arg){
 		
 			for(int i =0; i < time_quantum; i++){	
                     	while(queue->balance >= 10) pthread_cond_wait(&empty,&mutex);
-				
+			
 				queue_enqueue(queue,data->car_num);
 	
 				data->burst--;
@@ -260,7 +267,7 @@ void *customer_f(void *arg){
 		
 		if(data->cus_num == queue->head->next->car_num){
 			
-			queue_dequeue(queue);	
+			queue_dequeue(queue);
 		
 			pthread_cond_signal(&empty);
 		
@@ -269,6 +276,7 @@ void *customer_f(void *arg){
 		pthread_mutex_unlock(&mutex);
 	}
 }
+
 void lab2_sync_usage(char *cmd) {
 	printf("\n Usage for %s : \n",cmd);
     printf("    -c: Total number of vehicles produced, must be bigger than 0 ( e.g. 100 )\n");
@@ -346,18 +354,18 @@ int main(int argc, char* argv[]) {
 		exit(0);
 	}
 	
-	printf(" ㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡ \n");
-	printf("|생산자thread와 소비자thread는 각각 2,5,10개 선택 가능합니다.                                  |\n");
+	printf("*ㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡ*\n");
+	printf("|차량 종류는 2,5,10개 선택 가능합니다.                                                         |\n");
 	printf("|생산라인의 생산수                                                                             |\n");
 	printf("|total_car는 100, 1000, 10000대의 경우가 있습니다.                                             |\n");
 	printf("|생산라인의 개수는 소비자의 수와 같습니다.                                                     |\n");
 	printf("|생산라인의 수는 2, 5, 10의 경우가 있습니다.                                                   |\n");
 	printf("|각 생산라인의 생산 수(100개 기준) 1000개(100개 기준 * 10) 10000개(100개 기준 * 100)           |\n");
-	printf("|생산라인이  2개일 때 => 1: 4 , 2: 6.                                                          |\n");
-	printf("|생산라인이  5개일 때 => 1: 14, 2: 18, 3: 26, 4: 30, 5: 12                                     |\n");
-	printf("|생산라인이 10개일 때 => 1: 4, 2: 8, 3: 12, 4: 16, 5: 10, 6: 8, 7: 12, 8: 8, 9: 10, 10: 12     |\n"); 
-	printf("|arrival time은 모든 0초로 같습니다.                                                           |\n");
-	printf(" ㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡ \n");
+	printf("|차종이   2개일 때 => 1: 4 , 2: 6.                                                             |\n");
+	printf("|차종이   5개일 때 => 1: 14, 2: 18, 3: 26, 4: 30, 5: 12                                        |\n");
+	printf("|차종이  10개일 때 => 1: 4, 2: 8, 3: 12, 4: 16, 5: 10, 6: 8, 7: 12, 8: 8, 9: 10, 10: 12        |\n"); 
+	printf("|arrival time은 모두 0초로 같습니다.                                                           |\n");
+	printf("*ㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡ*\n");
 
 	for (int i = 1; i < argc; i++) {
 		if (sscanf(argv[i], "-c=%d%c", &n, &junk) == 1) {
@@ -390,12 +398,14 @@ int main(int argc, char* argv[]) {
                 pthread_create(&customer[i]->pa,NULL,customer_f,(void *)customer[i]);
 	
         }
+	
 	for(int i =0 ; i < thread_n ; i++){
                 pthread_join(producer[i]->pa,NULL);
         }
         for(int i =0 ; i < thread_n ; i++){
                 pthread_join(customer[i]->pa,NULL);
         }
+	
 	gettimeofday(&end,NULL);
 	result_T = ((end.tv_sec - start.tv_sec)*1000) + ((end.tv_usec - start.tv_usec)/1000);
 
@@ -415,12 +425,14 @@ int main(int argc, char* argv[]) {
                 pthread_create(&customer[i]->pa,NULL,customer_f,(void *)customer[i]);
 
         }
+	
         for(int i =0 ; i < thread_n ; i++){
                 pthread_join(producer[i]->pa,NULL);
         }
         for(int i =0 ; i < thread_n ; i++){
                 pthread_join(customer[i]->pa,NULL);
         }
+	
         gettimeofday(&end,NULL);
         result_T = ((end.tv_sec - start.tv_sec)*1000) + ((end.tv_usec - start.tv_usec)/1000);
 
@@ -430,43 +442,43 @@ int main(int argc, char* argv[]) {
         printf("(2) fine-grained Lock Experiment \n");
         printf("        Total produce Number = %d\n",current_total_car);
         printf("        Final Balance Value = %d\n",queue->balance);
-	printf("        Execution time = %.lfms\n",result_T);
-
+ 	printf("        Execution time = %.lfms\n",result_T);
+        printf("==== Vehicle production problem ====\n");
+        printf("(3) No Lock Experiment (생산자에만 No Lock을 적용했습니다./ 락이 없으면 대부분 오류가 발생하기 때문에 주석처리 했습니다.)\n");
+/* No Lock experiment code
 	clean_queue(queue);
 	setting(producer);
         
 	gettimeofday(&start,NULL);
-//        for(int i =0; i<2;i++){
 	for(int i =0 ; i < thread_n ; i++){
-                pthread_create(&producer[i]->pa,NULL,producer_nl,(void *)producer[i]);
+               pthread_create(&producer[i]->pa,NULL,producer_nl,(void *)producer[i]);
 
         }
         for(int i =0 ; i < thread_n ; i++){
                 pthread_create(&customer[i]->pa,NULL,customer_f,(void *)customer[i]);
 
         }
-//	}
-//	for(int i = 0; i<2; i++){
+	
         for(int i =0 ; i < thread_n ; i++){
                 pthread_join(producer[i]->pa,NULL);
         }
+	
         for(int i =0 ; i < thread_n ; i++){
                 pthread_join(customer[i]->pa,NULL);
         }
-//	}
+	
         gettimeofday(&end,NULL);
         result_T = ((end.tv_sec - start.tv_sec)*1000) + ((end.tv_usec - start.tv_usec)/1000);
 
 
-	printf("==== Vehicle production problem ====\n");
-        printf("(3) No Lock Experiment\n");
         printf("        Total produce Number = %d\n",current_total_car);
         printf("        Final Balance Value = %d\n",queue->balance);
         printf("        Execution time = %.lfms\n",result_T);
-
+	*/
 	for(int i = 0 ; i< thread_n; i++){
 		free(producer[i]);
 		free(customer[i]);
 	}
+	free(queue);
 	return 0;
 }
