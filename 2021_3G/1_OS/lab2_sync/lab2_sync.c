@@ -37,9 +37,12 @@ int time_quantum =0;
 int current_total_car = 0;
 int total_car = 0;
 int count =0;
+int thread_n;
+bool checking[10];
+bool e_checking = true;
 
 pthread_cond_t empty, fill;
-pthread_mutex_t mutex;
+pthread_mutex_t mutex,cus_lock;
 queue_t *queue;
 
 
@@ -50,8 +53,7 @@ void queue_init(queue_t *q){
         tmp->next = NULL;
         q->head = q->tail = tmp;
         q->balance = 0;
-        pthread_mutex_init(&q->headLock,NULL);
-        pthread_mutex_init(&q->tailLock,NULL);
+	
 }
 void queue_enqueue(queue_t *q, int car_num){
 	
@@ -60,108 +62,212 @@ void queue_enqueue(queue_t *q, int car_num){
         tmp->car_num = car_num;
         tmp->next = NULL;
 
-        pthread_mutex_lock(&q->tailLock);
+        
         q->tail->next = tmp;
         q->tail = tmp;
-        pthread_mutex_unlock(&q->tailLock);
+	
+        
 	q->balance++;
 }
 int queue_dequeue(queue_t *q){
 
         int car_num;
-        pthread_mutex_lock(&q->headLock);
+        
         node_t *tmp = q->head;
         node_t *newHead = tmp->next;
-        if(newHead == NULL){
-                pthread_mutex_unlock(&q->headLock);
-                exit(-1);
-        }
+	
         car_num = newHead->car_num;
         q->head = newHead;
-        pthread_mutex_unlock(&q->headLock);
+	
         free(tmp);
 	q->balance--;
         return car_num;
 }
 
-void next_turn_RR(int next){
-	next = (next+1) % 5;
-	if(next ==0) next = 1;
-
-	turn = next;
+void clean_queue(queue_t *q){
+	while(q->head->next != NULL){
+		queue_dequeue(q);
+	}
 }
+int RR()
+{
+pthread_mutex_lock(&cus_lock);
+if(turn +1 != thread_n){
+       turn =(turn+1) % thread_n;
+}
+else if(turn+1 ==thread_n){
+	turn = thread_n;
+}
+pthread_mutex_unlock(&cus_lock);
+return turn;
 
-void *producer_f(void *arg){
+}
+void *producer_c(void *arg){
 	pro *data = (pro *) arg;
 	while(data->burst > 0){
 		
-		if(count == 5){
-			next_turn_RR(data->car_num);
-			count = 0;
-		}
-		count++;
-		
-		while(turn == data->car_num){
-			printf("checking\n");	  
 			pthread_mutex_lock(&mutex);
-			
-				if(data->burst > time_quantum){
-					for(int i =0; i<time_quantum;i++){
-						while(false) pthread_cond_wait(&empty,&mutex);	
-						queue_enqueue(queue,data->car_num);
-						pthread_cond_signal(&fill);
-					
-					
-					}
-					current_total_car += time_quantum;
-					data->burst -= time_quantum;
-				}
-				else{
-					for(int i =0; i<data->burst;i++){
-						while(false) pthread_cond_wait(&empty,&mutex);
-						queue_enqueue(queue,data->car_num);
-						pthread_cond_signal(&fill);
-					
-
-					}
-					current_total_car += data->burst;
-					data->burst = 0;
-				}
-				next_turn_RR(data->car_num);
-				count = 0;	
-			pthread_mutex_unlock(&mutex);
+                if(turn == data->car_num){ 
+		
+			for(int i =0; i < time_quantum; i++){	
+                    	while(queue->balance >= 10) pthread_cond_wait(&empty,&mutex);
 				
+				queue_enqueue(queue,data->car_num);
+	
+				data->burst--;
+				if(data->burst ==0){
+				       	checking[data->car_num-1] = false;
+				}
+
+				current_total_car++;
+				
+				pthread_cond_signal(&fill);
+				if(data->burst ==0) break;
+                		}
+
+				turn = RR();
+			        while(checking[turn-1] == false) {
+                                        turn = RR();
+					
+                                 	if(thread_n ==5 && !checking[0] && !checking[1] && !checking[2] && !checking[3] && !checking[4]){
+                                                e_checking=false;
+                                                break;
+                                        }
+					else if(thread_n ==2 && !checking[0] && !checking[1]){
+						e_checking = false;
+						break;
+					}
+					else if(thread_n ==10 && !checking[0] &&!checking[1] &&!checking[2]&&!checking[3]&&!checking[4]&&!checking[5]&&!checking[6]&&!checking[7]&&!checking[8]&&!checking[9]){
+						e_checking = false;
+						break;
+					}
+                                }
+		}
+		
+	pthread_mutex_unlock(&mutex);
+	}
+	if(e_checking ==false) pthread_cond_broadcast(&fill);
+}
+void *producer_nl(void *arg){
+        pro *data = (pro *) arg;
+        while(data->burst > 0){
+
+                if(turn == data->car_num){
+
+                        for(int i =0; i < time_quantum; i++){
+                        while(queue->balance >= 10) pthread_cond_wait(&empty,&mutex);
+
+                                queue_enqueue(queue,data->car_num);
+
+                                data->burst--;
+                                if(data->burst ==0){
+                                        checking[data->car_num-1] = false;
+                                }
+
+                                current_total_car++;
+
+                                pthread_cond_signal(&fill);
+                                if(data->burst ==0) break;
+                                }
+
+                                turn = RR();
+                                while(checking[turn-1] == false) {
+                                        turn = RR();
+					if(thread_n ==5 && !checking[0] && !checking[1] && !checking[2] && !checking[3] && !checking[4]){
+                                                e_checking=false;
+                                                break;
+                                        }
+                                        else if(thread_n ==2 && !checking[0] && !checking[1]){
+                                                e_checking = false;
+                                                break;
+                                        }
+                                        else if(thread_n ==10 && !checking[0] &&!checking[1] &&!checking[2]&&!checking[3]&&!checking[4]&&!checking[5]&&!checking[6]&&!checking[7]&&!checking[8]&&!checking[9]){
+                                                e_checking = false;
+                                                break;
+                                        }
+
+                                }
+                }
+
+        }
+        if(e_checking ==false) pthread_cond_broadcast(&fill);
+}
+
+void *producer_f(void *arg){
+        pro *data = (pro *) arg;
+        while(data->burst > 0){
+		
+		
+                if(turn == data->car_num){
+                        for(int i =0; i < time_quantum; i++){
+
+				pthread_mutex_lock(&mutex);
+                        	while(queue->balance >= 10) pthread_cond_wait(&empty,&mutex);
+                                queue_enqueue(queue,data->car_num);
+
+                                data->burst--;
+				pthread_cond_signal(&fill);
+				pthread_mutex_unlock(&mutex);
+                                if(data->burst ==0){
+                                        checking[data->car_num-1] = false;
+                                }
+				
+                                current_total_car++;
+
+                                
+                                if(data->burst ==0) break;
+                                }
+		
+				
+				pthread_mutex_lock(&mutex);
+                                turn = RR();
+                                while(checking[turn-1] == false) {
+                                        turn = RR();
+                                        if(thread_n ==5 && !checking[0] && !checking[1] && !checking[2] && !checking[3] && !checking[4]){
+                                                e_checking=false;
+                                                break;
+                                        }
+                                        else if(thread_n ==2 && !checking[0] && !checking[1]){
+                                                e_checking = false;
+                                                break;
+                                        }
+                                        else if(thread_n ==10 && !checking[0] &&!checking[1] &&!checking[2]&&!checking[3]&&!checking[4]&&!checking[5]&&!checking[6]&&!checking[7]&&!checking[8]&&!checking[9]){
+                                                e_checking = false;
+                                                break;
+                                        }
+
+                                }
+				pthread_mutex_unlock(&mutex);
+                }
+
+        }
+        if(e_checking ==false) pthread_cond_broadcast(&fill);
+}
+void *customer_f(void *arg){
+	cus *data = (cus *)arg;
+	while(e_checking){
+	
+		
+		pthread_mutex_lock(&mutex);
+        	while(queue->head->next == NULL){	
+			
+	       		pthread_cond_wait(&fill,&mutex);
+			if(e_checking == false){
+				pthread_mutex_unlock(&mutex);
+				pthread_exit(NULL);
 			}
 		}
-	}
-	
-
-
-void *customer_f(void *arg){
-	
-	cus *data = (cus *)arg;
-	printf("cus_num : %d\n",data->cus_num);
-	while(current_total_car < total_car ){
 		
-		if(queue->head->next != NULL){
-		while(data->cus_num == queue->head->next->car_num){
-				
-			pthread_mutex_lock(&mutex);
-			while(queue->balance ==0)
-				pthread_cond_wait(&fill,&mutex);
+		if(data->cus_num == queue->head->next->car_num){
 			
-			queue_dequeue(queue);
-			
-
+			queue_dequeue(queue);	
+		
 			pthread_cond_signal(&empty);
-			pthread_mutex_unlock(&mutex);
+		
 		}
 		
+		pthread_mutex_unlock(&mutex);
 	}
-	}
-	if(current_total_car >= total_car) pthread_exit(0);
-
-
 }
 void lab2_sync_usage(char *cmd) {
 	printf("\n Usage for %s : \n",cmd);
@@ -174,33 +280,63 @@ void lab2_sync_example(char *cmd) {
     printf("    #sudo %s -c=100 -q=1 \n", cmd);
     printf("    #sudo %s -c=10000 -q=4 \n", cmd);
 }
+void setting(pro **p){
+	
+	for(int i =0; i < 10; i++){
+		checking[i] = true;
+	}
+	e_checking = true;
+	turn = 1;
+	current_total_car = 0;
+	if(total_car ==100 && thread_n==2){ p[0]->burst = 40; p[1]->burst = 60;}
+	else if(total_car == 100 && thread_n ==5){p[0]->burst=14;p[1]->burst = 18;p[2]->burst = 26; p[3]->burst = 30; p[4]->burst=12;}
+	else if(total_car == 100 && thread_n ==10){p[0]->burst = 4; p[1]->burst = 8; p[2]->burst = 12; p[3]->burst = 16; p[4]->burst = 10; p[5]->burst= 8; p[6]->burst = 12; p[7]->burst = 8; p[8]->burst = 10; p[9]->burst = 12;}
+	else if(total_car ==1000 && thread_n==2){ p[0]->burst = 400; p[1]->burst = 600;}
+        else if(total_car == 1000 && thread_n ==5){p[0]->burst=140;p[1]->burst = 180;p[2]->burst = 260; p[3]->burst = 300; p[4]->burst=120;}
+        else if(total_car == 1000 && thread_n ==10){p[0]->burst = 40; p[1]->burst = 80; p[2]->burst = 120; p[3]->burst = 160; p[4]->burst = 100; p[5]->burst= 80; p[6]->burst = 120; p[7]->burst = 80; p[8]->burst = 100; p[9]->burst = 120;}
+	else if(total_car ==10000 && thread_n==2){ p[0]->burst = 4000; p[1]->burst = 6000;}
+        else if(total_car ==10000 && thread_n ==5){p[0]->burst=1400;p[1]->burst = 1800;p[2]->burst = 2600; p[3]->burst = 3000; p[4]->burst=1200;}
+        else if(total_car ==10000 && thread_n ==10){p[0]->burst = 400; p[1]->burst = 800; p[2]->burst = 1200; p[3]->burst = 1600; p[4]->burst = 1000; p[5]->burst= 800; p[6]->burst = 1200; p[7]->burst = 800; p[8]->burst = 1000; p[9]->burst = 1200;}
+	else{
+		printf("스레드의 수는 2, 5, 10만 입력가능합니다.\n");
+		exit(0);
+	}
+
+
+
+}
 
 int main(int argc, char* argv[]) {
 	char op;
-	int n; char junk;
+	int n; 
+	char junk;
 	struct timeval start, end;
 	double result_T;
+	
 
+	printf("차량 종류의 수를 입력해 주세요.(문제는 5종류이며 2, 10종류도 넣어봤습니다.\n");
+	scanf("%d",&thread_n);
 	queue = malloc(sizeof(queue_t *));
-	pro *producer[5];
-	cus *customer[5];
-	for(int i = 0; i < 5; i++){
-		producer[i] = malloc(sizeof(pro));
+	pro *producer[thread_n];
+	cus *customer[thread_n];
+
+	for(int i = 0; i < thread_n; i++){
+		producer[i] = malloc(sizeof(pro *));
 	}
 
-	for(int i = 0; i < 5; i++){
-               	customer[i] = malloc(sizeof(cus));
+	for(int i = 0; i < thread_n; i++){
+              	customer[i] = malloc(sizeof(cus *));
         }
-	printf("생산라인을 구성합니다. 각 라인의 생산 수의 합은 argv[1]에서 입력했던 총 생산 수랑 같아야합니다.\n");
-	for(int i = 0; i < 5; i++){
-		printf("%d번 생산라인의 생산 수를 입력해주세요.\n",i+1);
-		producer[i]->car_num = i+1;
-		customer[i]->cus_num = i+1;
-		scanf(" %d",&producer[i]->burst);
-	}
+
 	queue_init(queue);
 
+	for(int i = 0; i < thread_n; i++){
+		producer[i]->car_num = i+1;
+		customer[i]->cus_num = i+1;	
+	}
+
 	pthread_mutex_init(&mutex,NULL);
+	pthread_mutex_init(&cus_lock,NULL);
 	pthread_cond_init(&fill,NULL);
 	pthread_cond_init(&empty,NULL);
 
@@ -210,11 +346,19 @@ int main(int argc, char* argv[]) {
 		exit(0);
 	}
 	
-	printf("===========================================================\n");
-	printf("한 생산 라인에서 차는 1초에 1대씩 만들어진다고 가정합니다.\n");
-	printf("또한 생산라인을 각각 A,B,C,D,E라 칭하고, 소비자는 각각 5명입니다.\n");
-	printf("arrival time은 모든 0초로 같습니다.\n");
-	printf("===========================================================\n");
+	printf(" ㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡ \n");
+	printf("|생산자thread와 소비자thread는 각각 2,5,10개 선택 가능합니다.                                  |\n");
+	printf("|생산라인의 생산수                                                                             |\n");
+	printf("|total_car는 100, 1000, 10000대의 경우가 있습니다.                                             |\n");
+	printf("|생산라인의 개수는 소비자의 수와 같습니다.                                                     |\n");
+	printf("|생산라인의 수는 2, 5, 10의 경우가 있습니다.                                                   |\n");
+	printf("|각 생산라인의 생산 수(100개 기준) 1000개(100개 기준 * 10) 10000개(100개 기준 * 100)           |\n");
+	printf("|생산라인이  2개일 때 => 1: 4 , 2: 6.                                                          |\n");
+	printf("|생산라인이  5개일 때 => 1: 14, 2: 18, 3: 26, 4: 30, 5: 12                                     |\n");
+	printf("|생산라인이 10개일 때 => 1: 4, 2: 8, 3: 12, 4: 16, 5: 10, 6: 8, 7: 12, 8: 8, 9: 10, 10: 12     |\n"); 
+	printf("|arrival time은 모든 0초로 같습니다.                                                           |\n");
+	printf(" ㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡ \n");
+
 	for (int i = 1; i < argc; i++) {
 		if (sscanf(argv[i], "-c=%d%c", &n, &junk) == 1) {
 			total_car = n;
@@ -228,53 +372,99 @@ int main(int argc, char* argv[]) {
 			exit(0);
 		}
 	}
-
-
+	
+	setting(producer);
 	/*
 	   * You need to implement Vehicle production Problem 
 	   * If you want to use other header file, it's ok!
 	   * If you have any question for this task, please contact me (ghwls03s@gmail.com)
 	   * You may be need to use pthread_create function
 	*/
-	
-	gettimeofday(&start,NULL);
-	for(int i =0 ; i < 5 ; i++){
-		pthread_create(&producer[i]->pa,NULL,producer_f,(void *)producer[i]);
-		usleep(100);
-	}
-	for(int i =0 ; i < 5 ; i++){
-                pthread_create(&customer[i]->pa,NULL,customer_f,(void *)customer[i]);
-		usleep(100);
-        }
 
-	printf("HI\n");
-	for(int i =0 ; i < 5 ; i++){
+	gettimeofday(&start,NULL);
+	for(int i =0 ; i < thread_n ; i++){
+		pthread_create(&producer[i]->pa,NULL,producer_c,(void *)producer[i]);
+
+	}
+	for(int i =0 ; i < thread_n ; i++){
+                pthread_create(&customer[i]->pa,NULL,customer_f,(void *)customer[i]);
+	
+        }
+	for(int i =0 ; i < thread_n ; i++){
                 pthread_join(producer[i]->pa,NULL);
         }
-        for(int i =0 ; i < 5 ; i++){
+        for(int i =0 ; i < thread_n ; i++){
                 pthread_join(customer[i]->pa,NULL);
         }
 	gettimeofday(&end,NULL);
-	printf("HI\n");
-	result_T = (end.tv_sec - start.tv_sec) + ((end.tv_usec - start.tv_usec)/1000000);
+	result_T = ((end.tv_sec - start.tv_sec)*1000) + ((end.tv_usec - start.tv_usec)/1000);
 
 	printf("==== Vehicle production problem ====\n");
-	printf("(1) No Lock Experiment\n");
-	printf("	Total produce Number =\n");
-	printf("	Final Balance Value =\n");
-	printf("	Execution time =\n");
+	printf("(1) Coarse-grained Lock Experiment\n");
+	printf("	Total produce Number = %d\n",current_total_car);
+	printf("	Final Balance Value = %d\n",queue->balance);
+	printf("	Execution time = %.lfms\n",result_T);
+	clean_queue(queue);
+	setting(producer);
+	gettimeofday(&start,NULL);
+        for(int i =0 ; i < thread_n ; i++){
+                pthread_create(&producer[i]->pa,NULL,producer_f,(void *)producer[i]);
+
+        }
+        for(int i =0 ; i < thread_n ; i++){
+                pthread_create(&customer[i]->pa,NULL,customer_f,(void *)customer[i]);
+
+        }
+        for(int i =0 ; i < thread_n ; i++){
+                pthread_join(producer[i]->pa,NULL);
+        }
+        for(int i =0 ; i < thread_n ; i++){
+                pthread_join(customer[i]->pa,NULL);
+        }
+        gettimeofday(&end,NULL);
+        result_T = ((end.tv_sec - start.tv_sec)*1000) + ((end.tv_usec - start.tv_usec)/1000);
+
+
+
 	printf("==== Vehicle production problem ====\n");
-        printf("(2) Coarse-grained Lock Experiment \n");
+        printf("(2) fine-grained Lock Experiment \n");
         printf("        Total produce Number = %d\n",current_total_car);
         printf("        Final Balance Value = %d\n",queue->balance);
-        printf("        Execution time =%lf\n",result_T);
-        printf("==== Vehicle production problem ====\n");
-        printf("(3) fine-grained Lock Experiment\n");
-        printf("        Total produce Number =\n");
-        printf("        Final Balance Value =\n");
-        printf("        Execution time =\n");
+	printf("        Execution time = %.lfms\n",result_T);
 
-	for(int i = 0 ; i< 5; i++){
+	clean_queue(queue);
+	setting(producer);
+        
+	gettimeofday(&start,NULL);
+//        for(int i =0; i<2;i++){
+	for(int i =0 ; i < thread_n ; i++){
+                pthread_create(&producer[i]->pa,NULL,producer_nl,(void *)producer[i]);
+
+        }
+        for(int i =0 ; i < thread_n ; i++){
+                pthread_create(&customer[i]->pa,NULL,customer_f,(void *)customer[i]);
+
+        }
+//	}
+//	for(int i = 0; i<2; i++){
+        for(int i =0 ; i < thread_n ; i++){
+                pthread_join(producer[i]->pa,NULL);
+        }
+        for(int i =0 ; i < thread_n ; i++){
+                pthread_join(customer[i]->pa,NULL);
+        }
+//	}
+        gettimeofday(&end,NULL);
+        result_T = ((end.tv_sec - start.tv_sec)*1000) + ((end.tv_usec - start.tv_usec)/1000);
+
+
+	printf("==== Vehicle production problem ====\n");
+        printf("(3) No Lock Experiment\n");
+        printf("        Total produce Number = %d\n",current_total_car);
+        printf("        Final Balance Value = %d\n",queue->balance);
+        printf("        Execution time = %.lfms\n",result_T);
+
+	for(int i = 0 ; i< thread_n; i++){
 		free(producer[i]);
 		free(customer[i]);
 	}
